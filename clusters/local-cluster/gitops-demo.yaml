@@ -1,10 +1,61 @@
-apiVersion: v1
-kind: ConfigMap
+# Scenario 5 — storage resources deployed by ArgoCD from Git.
+# All backed by IBM Fusion Data Foundation (Ceph RBD). Same manifest on every cluster.
+# Satisfies: "Deploy storage resources (StorageClasses, PVCs, snapshot policies) via ArgoCD."
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
 metadata:
-  name: gitops-managed
+  name: gitops-ceph-rbd
+  labels:
+    app.kubernetes.io/part-of: fusion-fdf-demo
+    managed-by: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"     # StorageClass before the PVC that uses it
+provisioner: openshift-storage.rbd.csi.ceph.com
+parameters:
+  clusterID: openshift-storage
+  pool: ocs-storagecluster-cephblockpool
+  imageFeatures: layering
+  csi.storage.k8s.io/fstype: ext4
+  csi.storage.k8s.io/provisioner-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/provisioner-secret-namespace: openshift-storage
+  csi.storage.k8s.io/controller-expand-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/controller-expand-secret-namespace: openshift-storage
+  csi.storage.k8s.io/node-stage-secret-name: rook-csi-rbd-node
+  csi.storage.k8s.io/node-stage-secret-namespace: openshift-storage
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+volumeBindingMode: Immediate
+---
+apiVersion: snapshot.storage.k8s.io/v1
+kind: VolumeSnapshotClass
+metadata:
+  name: gitops-rbd-snapclass
+  labels:
+    app.kubernetes.io/part-of: fusion-fdf-demo
+    managed-by: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
+driver: openshift-storage.rbd.csi.ceph.com
+deletionPolicy: Delete
+parameters:
+  clusterID: openshift-storage
+  csi.storage.k8s.io/snapshotter-secret-name: rook-csi-rbd-provisioner
+  csi.storage.k8s.io/snapshotter-secret-namespace: openshift-storage
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: gitops-demo-pvc
   namespace: gitops-demo
   labels:
+    app.kubernetes.io/part-of: fusion-fdf-demo
     managed-by: argocd
-data:
-  cluster: "local-cluster (hub / Primary)"
-  note: "Managed by ArgoCD from Azure DevOps. Delete me in the console and watch self-heal."
+  annotations:
+    argocd.argoproj.io/sync-wave: "1"     # created after the StorageClass above
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: gitops-ceph-rbd
+  resources:
+    requests:
+      storage: 5Gi
